@@ -35,6 +35,11 @@ int main(){
     int numBlocks = (DSIZE + BLOCK_SIZE - 1) / BLOCK_SIZE;
     vecAdd<<<numBlocks, BLOCK_SIZE>>>(d_A, d_B, d_out, DSIZE);
 
+    cudaError_t err = cudaGetLastError();
+    if(err != cudaSuccess){
+        printf("Kernel launch error: %s\n", cudaGetErrorString(err));
+    }
+
     cudaDeviceSynchronize();
     cudaMemcpy(h_out, d_out, DSIZE * sizeof(float), cudaMemcpyDeviceToHost);
 
