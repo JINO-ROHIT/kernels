@@ -1,0 +1,11 @@
+[project]
+name = "kernels"
+version = "0.1.0"
+description = "writing fast kernels"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "ninja>=1.13.0",
+    "torch>=2.10.0",
+    "torchvision>=0.25.0",
+]
