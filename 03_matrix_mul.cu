@@ -17,13 +17,27 @@ __global__ void matrixMul_1d(const float* __restrict__ M, const float* __restric
         }
         O[row * width + col] = val;
     }
-    // then 2d indexing
+}
 
+
+__global__ void matrixMul_2d(const float* __restrict__ M, const float* __restrict__ N, float* __restrict__ O, const int width){
+    // assume a matrix of size (width x width)
+
+    int col = blockIdx.x * blockDim.x + threadIdx.x;
+    int row = blockIdx.y * blockDim.y + threadIdx.y;
+    if( (row <  width)  && (col < width) ){
+
+        float val = 0.0f;
+        for(int k = 0; k < width; k++){
+            val += M[row * width + k] * N[k * width + col];
+        }
+        O[row * width + col] = val;
+    }
 }
 
 
 int main() {
-    const int width = 1024;
+    const int width = 8192;
     size_t size = width * width * sizeof(float);
 
     float *h_M = (float*)malloc(size);
@@ -43,31 +57,38 @@ int main() {
     cudaMemcpy(d_M, h_M, size, cudaMemcpyHostToDevice);
     cudaMemcpy(d_N, h_N, size, cudaMemcpyHostToDevice);
 
-    int threadsPerBlock = 256;
-    int blocksPerGrid = (width * width + threadsPerBlock - 1) / threadsPerBlock;
+    cudaEvent_t start1, stop1, start2, stop2;
+    cudaEventCreate(&start1); cudaEventCreate(&stop1);
+    cudaEventCreate(&start2); cudaEventCreate(&stop2);
 
-    cudaEvent_t start, stop;
-    cudaEventCreate(&start);
-    cudaEventCreate(&stop);
+    int threads1d = 256;
+    int blocks1d = (width * width + threads1d - 1) / threads1d;
 
-    cudaEventRecord(start);
+    cudaEventRecord(start1);
+    matrixMul_1d<<<blocks1d, threads1d>>>(d_M, d_N, d_O, width);
+    cudaEventRecord(stop1);
 
-    matrixMul<<<blocksPerGrid, threadsPerBlock>>>(d_M, d_N, d_O, width);
+    dim3 threads2d(16, 16); 
+    dim3 blocks2d((width + threads2d.x - 1) / threads2d.x, 
+                  (width + threads2d.y - 1) / threads2d.y);
 
-    cudaEventRecord(stop); 
-    cudaEventSynchronize(stop); 
+    cudaEventRecord(start2);
+    matrixMul_2d<<<blocks2d, threads2d>>>(d_M, d_N, d_O, width);
+    cudaEventRecord(stop2);
 
-    float milliseconds = 0;
-    cudaEventElapsedTime(&milliseconds, start, stop);
+    cudaEventSynchronize(stop1);
+    cudaEventSynchronize(stop2);
 
-    cudaMemcpy(h_O, h_O, size, cudaMemcpyDeviceToHost);
+    float ms1 = 0, ms2 = 0;
+    cudaEventElapsedTime(&ms1, start1, stop1);
+    cudaEventElapsedTime(&ms2, start2, stop2);
 
-    std::cout << "kernel Execution Time: " << milliseconds << " ms" << std::endl;
-    std::cout << "matrix Width: " << width << std::endl;
+    std::cout << "matrix width: " << width << std::endl;
+    std::cout << "1D Kernel Time: " << ms1 << " ms" << std::endl;
+    std::cout << "2D Kernel Time: " << ms2 << " ms" << std::endl;
 
-
-    cudaEventDestroy(start);
-    cudaEventDestroy(stop);
+    cudaEventDestroy(start1); cudaEventDestroy(stop1);
+    cudaEventDestroy(start2); cudaEventDestroy(stop2);
     cudaFree(d_M); cudaFree(d_N); cudaFree(d_O);
     free(h_M); free(h_N); free(h_O);
 
