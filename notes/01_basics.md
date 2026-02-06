@@ -70,5 +70,4 @@ cudaMemcpy(C_h, C_d, size, cudaMemcpyDeviceToHost);
 }
 cudaFree(A_d);
 cudaFree(B_d);
-cud
 ```
