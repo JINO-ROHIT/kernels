@@ -20,3 +20,11 @@ max threads per SM: 1536
 max size of each dimension in a block: 1024 x 1024 x 64
 max size of each dimension in a grid: 2147483647 x 65535 x 65535
 ```
+
+### profiler
+
+profile using nvidia compute
+
+```
+sudo -E ncu-ui
+```
