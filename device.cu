@@ -18,6 +18,8 @@ int main(){
   cout << "card: " << deviceProp.name << endl;
   cout << "CUDA compute capability: "
        << deviceProp.major << "." << deviceProp.minor << endl;
+  cout << "SM count: "
+     << deviceProp.multiProcessorCount << endl;
   cout << "total global memory: "
        << (float)deviceProp.totalGlobalMem / pow(1024.0, 3) << " GB" << endl;
   cout << "clock rate: " << deviceProp.clockRate * 1e-3f << " MHz" << endl;
