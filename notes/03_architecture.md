@@ -56,3 +56,27 @@ one tensor core can do 64 FMA per cycle = 128 Flops (1 FMA = 2 Flops)
 peak throughput = maximum clock frequency x number of tensor cores x FLOPs per tensor core per cycle
                 = 2595 MHz x 136 x 128
                 = 45.3 TFLOPs (fp16 tensor)
+
+
+a thread block should contain at least 4 warps (128 threads).
+Why?
+- a thread block is resident on a single SM.
+- each SM has 4 warp schedulers so to fully utilize the hardware, you don't want them sitting idle.
+
+
+1. global memory(gmem)
+
+here the access patterns matter, because of the physics of the dram cells. when people say “GMEM coalescing is very important”, this is what they mean: threads should access contiguous memory locations to minimize the number of DRAM rows touched.
+
+2. shared memory(smem)
+
+these are made of sram cells. smem is organized into 32 banks, each bank 32 bits wide (4 bytes).
+
+SMEM can serve data from all 32 banks (128B) in a single cycle — but only if one rule is respected:
+
+Threads in a warp must not access different addresses within the same bank. Otherwise, those requests are serialized across multiple cycles.
+
+This situation is known as a bank conflict. If N threads access different addresses of the same bank, the result is an N-way bank conflict and the warp’s memory request takes N cycles to complete.
+
+
+#TO-DO - learn to read ptx
