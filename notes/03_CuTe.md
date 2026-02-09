@@ -162,3 +162,68 @@ Tensor rmem_4x8_pad = make_tensor<float>(Shape <_4, _8>{},
 Tensor rmem_4x8_like = make_tensor_like(rmem_4x8_pad);
 ```
 
+### Matrix Multiply Accumulate(MMA) [for volta section]
+
+the abstraction abstraction wraps GPU Tensor Core instructions in such a way so you dont have to write assembly. it has a 4 level hierarchy.
+
+1. operation struct - a minimal wrapper around the ptx instruction. it knows nothing about layouts or tensors.
+
+```
+SM70_8x8x4_F32F16F16F32_NT
+
+| Component      | Meaning                                             |
+| -------------- | --------------------------------------------------- |
+| `SM70`         | Architecture (Volta)                                |
+| `8x8x4`        | M×N×K dimensions                                    |
+| `F32F16F16F32` | D=A×B+C types (D, A, B, C)                          |
+| `NT`           | A=No-transpose (col-major), B=Transpose (row-major) |
+
+```
+
+2. traits - they add semantic metadata to the raw operation; shapes, types, and crucially, layouts that map threads and values to matrix coordinates.
+
+```
+template <>
+struct MMA_Traits<SM70_8x8x4_F32F16F16F32_NT>
+{
+    // Logical compute types
+    using ValTypeD = float;
+    using ValTypeA = half_t;
+    using ValTypeB = half_t;
+    using ValTypeC = float;
+
+    // Logical shape of the MMA operation
+    using Shape_MNK = Shape<_8, _8, _4>;
+
+    // Thread mapping: which warp threads participate?
+    using ThrID = Layout<Shape<_4, _2>, Stride<_1, _16>>;
+    // Maps logical thread [0-7] → actual warp threads [0,1,2,3] ∪ [16,17,18,19]
+    // This is the "quadpair" (QP) pattern: 8 threads working together
+
+    // Layouts for each matrix: (thread, value) → (M, K) or (M, N) coordinate
+    using ALayout = SM70_8x4_Col;   // 8×4 column-major layout for A
+    using BLayout = SM70_8x4_Col;   // 8×4 column-major layout for B  
+    using CLayout = SM70_8x8_32b;   // 8×8 layout for C/D
+};
+```
+
+3. atom
+
+combines operation and trait into a usable object
+
+```
+using MyAtom = MMA_Atom<SM70_8x8x4_F32F16F16F32_NT>;
+MyAtom atom;
+```
+
+4. titlemmma - scales up a single atom to handle larger tiles by replicating and interleaving Atoms across threads and values.
+
+```
+// Single Atom (8×8×4)
+TiledMMA mma = make_tiled_mma(SM70_8x8x4_F32F16F16F32_NT{});
+
+// Equivalent explicit form:
+TiledMMA mma = make_tiled_mma(SM70_8x8x4_F32F16F16F32_NT{},
+                              Layout<Shape<_1,_1,_1>>{},  // 1×1×1 Atom layout
+                              Tile<_8,_8,_4>{});          // Tile size matches Atom
+```
