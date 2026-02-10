@@ -19,6 +19,22 @@ some terms to know -
 5. size(Layout): The size of the Layout function’s domain. Equivalent to size(shape(Layout)).
 
 6. cosize(Layout): The size of the Layout function’s codomain (not necessarily the range). Equivalent to A(size(A) - 1) + 1.
+
+For 4:1 mapping to [0,1,2,3]:
+
+cosize = 4 (spans addresses 0 through 3)
+
+For 4:2 mapping to [0,2,4,6]:
+
+cosize = 7 (spans addresses 0 through 6, even though we only use 4 of them)
+
+For (2,3):(1,4) mapping to [0,1,4,5,8,9]:
+
+cosize = 10 (spans addresses 0 through 9)
+
+7. codomain: set of all memory addresses that layout produces.
+
+for 4:2: codomain = {0, 2, 4, 6}
 ```
 
 1. integers
@@ -144,6 +160,70 @@ the four cases of coalescing
 
 check 06_coalesce.cu for example.
 
+2. composition - is a way of chaining layouts (to-do understand in detail)
+
+```
+R = A o B means apply B first and then A
+```
+# to-do later
+
+
+3. complement - given a layout A that selects some coordinates from a space of size M, what layout describes all the coordinates NOT selected by A?
+
+```
+Layout complement(LayoutA const& layout_a, Shape const& cotarget)
+
+layout_a: The original layout (what we're already covering)
+cotarget: The total space size we want to cover (often just an integer like 24)
+
+original layout: 4:1
+target space: 24
+question: What is the complement?
+
+layout 4:1 --> 4 elements strided at 1 [0, 1, 2, 3]
+
+cotarget = 24 --> we need to cover [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+
+whats missing = [4, 5, 6, 7 ..... 23]
+
+but we need a pattern? the original 4:1 is a tile of 4 elements, to reach 24, we repeat the tile 6 times (4 * 6)
+
+each tile starts at 
+
+tile 0 - 0
+tile 1 - 4
+tile 2 - 8
+
+difference between each position(ie the stride) is 4
+
+hence the pattern is 6:4
+
+```
+
+some post conditions are -
+
+- size constraint
+
+```
+cosize(make_layout(layout_a, result)) >= size(cotarget)
+```
+
+when you combine the original layout with its complement, you can cover at least the entire cotarget space.
+
+- ordered property 
+
+```
+result(i-1) < result(i)  // for all ic
+```
+
+the complement is strictly ordered - indices increase monotonically. this makes the complement unique and predictable
+
+- disjoint codomains
+
+```
+result(i) != layout_a(j)  // for all i, j
+```
+the  complement never produces indices that the original layout already covers (no overlap).
 #### tensor
 
 a tensor is represented by two template parameters - engine and layout.
