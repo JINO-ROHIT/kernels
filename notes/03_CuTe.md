@@ -1,5 +1,7 @@
 ### CuTe
 
+## to-do learn and write more notes on nested cases
+
 CuTe is a layout abstraction for working on multidimensional layouts of data. i think it was introduced as a part of Cutlass 3.xxx. the idea is while it handles the abstractions for the data and layout, programmers can focus on the actual kernel logic.
 
 CuTe is a header only library!
@@ -160,11 +162,148 @@ the four cases of coalescing
 
 check 06_coalesce.cu for example.
 
-2. composition - is a way of chaining layouts (to-do understand in detail)
+2. composition - is a way of chaining layouts
 
 ```
 R = A o B means apply B first and then A
 ```
+
+a simple example -
+
+```
+Function B(x) = x + 2
+Function A(x) = x × 3
+
+Composition R = A ∘ B
+
+R(5) = A(B(5))
+     = A(5 + 2)
+     = A(7)
+     = 7 × 3
+     = 21
+```
+
+remember layout is just a way to map cordinates to memory addresses.
+
+```
+Layout B = 4:3
+This means: address = coordinate * 3
+
+B(0) = 0 × 3 = 0
+B(1) = 1 × 3 = 3
+B(2) = 2 × 3 = 6
+B(3) = 3 × 3 = 9
+```
+
+
+lets work through an example now -
+
+```
+A = 12:2  (12 elements, stride 2)
+B = 4:3   (4 elements, stride 3)
+
+R = A o B
+
+What is R = A o B?
+
+
+layout a
+
+A = 12:2
+
+A(0) = 0 × 2 = 0
+A(1) = 1 × 2 = 2
+A(2) = 2 × 2 = 4
+A(3) = 3 × 2 = 6
+A(4) = 4 × 2 = 8
+A(5) = 5 × 2 = 10
+A(6) = 6 × 2 = 12
+A(7) = 7 × 2 = 14
+A(8) = 8 × 2 = 16
+A(9) = 9 × 2 = 18
+A(10) = 10 × 2 = 20
+A(11) = 11 × 2 = 22
+
+A maps to: [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22]
+
+layout b
+
+B = 4:3
+
+B(0) = 0 × 3 = 0
+B(1) = 1 × 3 = 3
+B(2) = 2 × 3 = 6
+B(3) = 3 × 3 = 9
+
+B maps to: [0, 3, 6, 9]
+
+
+compute R = A o B
+
+R(0) = A(B(0))
+     = A(0)
+     = 0
+
+R(1) = A(B(1))
+     = A(3)
+     = 6
+
+R(2) = A(B(2))
+     = A(6)
+     = 12
+
+R(3) = A(B(3))
+     = A(9)
+     = 18
+
+composition R produces addresses = [0, 6, 12, 18]
+
+basically R = (4:6)
+
+so what happened?
+
+Original A = 12:2
+Selects every 2nd element: [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22]
+
+Layout B = 4:3
+Selects every 3rd element from whatever it's applied to
+
+Composition A ∘ B:
+Takes every 3rd element FROM the "every 2nd element" sequence
+Result: [0, 6, 12, 18]
+
+Memory:     [0][1][2][3][4][5][6][7][8][9][10][11][12][13][14][15][16][17][18][19][20][21][22]
+A selects:   ^     ^     ^     ^     ^      ^      ^      ^       ^       ^       ^       ^
+                   (every 2nd position)
+                   
+B then selects every 3rd from those:
+             ^                 ^                     ^                          ^
+            0                 6                    12                         18
+
+
+
+formula for simple composition
+
+```
+A = a:b  (shape a, stride b)
+B = s:d  (shape s, stride d)
+
+result R = A o B = s:(b×d)
+```
+
+apply to our example
+
+```
+A = 12:2  (a=12, b=2)
+B = 4:3   (s=4, d=3)
+
+R = s:(bxd)
+  = 4:(2x3)
+  = 4:6 
+```
+
+```
+
 # to-do later
 
 
@@ -224,6 +363,8 @@ the complement is strictly ordered - indices increase monotonically. this makes 
 result(i) != layout_a(j)  // for all i, j
 ```
 the  complement never produces indices that the original layout already covers (no overlap).
+
+
 #### tensor
 
 a tensor is represented by two template parameters - engine and layout.
