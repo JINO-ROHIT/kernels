@@ -127,6 +127,23 @@ the map from a natural coordinate to an index is performed by taking the inner p
 #to-do add examples for index mapping and layout manipulation
 
 
+#### layout algebra
+
+1. coalesce - coalesce is a simplify operation on layouts. It reduces the number of modes (dimensions) in a layout without changing the underlying mapping from integers to integers.
+
+
+the four cases of coalescing
+
+| Case  | Condition             | Result            | Explanation                                                                                           |
+| ----- | --------------------- | ----------------- | ----------------------------------------------------------------------------------------------------- |
+| **1** | `s0:d0 ++ _1:d1`      | `s0:d0`           | size-1 modes contribute nothing (always index 0)                                                      |
+| **2** | `_1:d0 ++ s1:d1`      | `s1:d1`           | Size-1 modes contribute nothing                                                                       |
+| **3** | `s0:d0 ++ s1:(s0×d0)` | `(s0×s1):d0`      | **Contiguous merge**: If stride of second equals the "reach" of first, they form one contiguous block |
+| **4** | Otherwise             | `(s0,s1):(d0,d1)` | Cannot combine, keep separate                                                                         |
+
+
+check 06_coalesce.cu for example.
+
 #### tensor
 
 a tensor is represented by two template parameters - engine and layout.
