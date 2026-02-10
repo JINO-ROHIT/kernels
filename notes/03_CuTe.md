@@ -5,6 +5,22 @@ CuTe is a layout abstraction for working on multidimensional layouts of data. i 
 CuTe is a header only library!
 
 
+```
+some terms to know -
+
+1. rank(Layout) - the number of modes in a Layout. Equivalent to the tuple size of the Layout’s shape.
+
+2. depth(Layout): The depth of the Layout’s shape. A single integer has depth 0, a tuple of integers has depth 1, a tuple of tuples of integers has depth 2, etc.
+
+3. shape(Layout): The shape of the Layout.
+
+4. stride(Layout): The stride of the Layout.
+
+5. size(Layout): The size of the Layout function’s domain. Equivalent to size(shape(Layout)).
+
+6. cosize(Layout): The size of the Layout function’s codomain (not necessarily the range). Equivalent to A(size(A) - 1) + 1.
+```
+
 1. integers
 
 - dynamic/run-time integers are ordinary types like int or size_t etc
@@ -25,8 +41,10 @@ CuTe is a header only library!
 5. layout
 
 - tuple of (shape, stride)
-- when stride is not specified, it it created from the shape with layoutleft as default. creates exclusive prefix product from left to right.
-- layout right is from right to left.
+- when stride is not specified, it it created from the shape with layoutleft as default(column major). creates exclusive prefix product from left to right.
+- layout right is from right to left.(row major)
+
+note: column major puts all the elements one by one in the first column.
 
 6. tensor
 
