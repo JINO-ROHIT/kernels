@@ -304,7 +304,7 @@ R = s:(bxd)
 
 ```
 
-# to-do later
+# to-do later nested 
 
 
 3. complement - given a layout A that selects some coordinates from a space of size M, what layout describes all the coordinates NOT selected by A?
@@ -364,6 +364,10 @@ result(i) != layout_a(j)  // for all i, j
 ```
 the  complement never produces indices that the original layout already covers (no overlap).
 
+# to-do
+4. division(tiling)
+
+5. product(tiling)
 
 #### tensor
 
