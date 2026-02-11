@@ -422,68 +422,66 @@ Tensor rmem_4x8_pad = make_tensor<float>(Shape <_4, _8>{},
 Tensor rmem_4x8_like = make_tensor_like(rmem_4x8_pad);
 ```
 
-### Matrix Multiply Accumulate(MMA) [for volta section]
+### Matrix Multiply Accumulate(MMA)
 
-the abstraction abstraction wraps GPU Tensor Core instructions in such a way so you dont have to write assembly. it has a 4 level hierarchy.
+tensor cores introduced with volta are designed to matrix mul extremely fast. earlier we depended on cuda cores.
 
-1. operation struct - a minimal wrapper around the ptx instruction. it knows nothing about layouts or tensors.
+we have two level ways to access them -
+1. WMMA (Warp Matrix Multiply Accumulate) - Somewhat abstracted, easier but less control
+2. MMA (Matrix Multiply Accumulate) - Direct assembly instructions, maximum control but very difficult
 
-```
-SM70_8x8x4_F32F16F16F32_NT
+it has 5 layers of abstract so you dont have to write assembly directly 0
 
-| Component      | Meaning                                             |
-| -------------- | --------------------------------------------------- |
-| `SM70`         | Architecture (Volta)                                |
-| `8x8x4`        | M×N×K dimensions                                    |
-| `F32F16F16F32` | D=A×B+C types (D, A, B, C)                          |
-| `NT`           | A=No-transpose (col-major), B=Transpose (row-major) |
+1. mmOperation - his is the actual assembly instruction that talks directly to the Tensor Core hardware.
 
-```
+SM75_16x8x8_F32F16F16F32_TN
+let's decode this:
 
-2. traits - they add semantic metadata to the raw operation; shapes, types, and crucially, layouts that map threads and values to matrix coordinates.
+SM75 = Turing architecture GPU
+16x8x8 = Matrix sizes (M=16, N=8, K=8)
+F32F16F16F32 = Data types for D, A, B, C (float32, float16, float16, float32)
+TN = Matrix orientations (Transposed, Normal)
 
-```
-template <>
-struct MMA_Traits<SM70_8x8x4_F32F16F16F32_NT>
-{
-    // Logical compute types
-    using ValTypeD = float;
-    using ValTypeA = half_t;
-    using ValTypeB = half_t;
-    using ValTypeC = float;
+It contains a fma (fused multiply-add) function that executes the actual hardware instruction.
 
-    // Logical shape of the MMA operation
-    using Shape_MNK = Shape<_8, _8, _4>;
+2. MMA_Traits - the information bridge
+think of this as a translator or specification sheet.
+The hardware layer (MMAOperation) just executes instructions. But programmers need additional information:
 
-    // Thread mapping: which warp threads participate?
-    using ThrID = Layout<Shape<_4, _2>, Stride<_1, _16>>;
-    // Maps logical thread [0-7] → actual warp threads [0,1,2,3] ∪ [16,17,18,19]
-    // This is the "quadpair" (QP) pattern: 8 threads working together
+What types of data can I use?
+What's the logical shape of the matrices?
+How are threads organized?
+How is data laid out in memory?
 
-    // Layouts for each matrix: (thread, value) → (M, K) or (M, N) coordinate
-    using ALayout = SM70_8x4_Col;   // 8×4 column-major layout for A
-    using BLayout = SM70_8x4_Col;   // 8×4 column-major layout for B  
-    using CLayout = SM70_8x8_32b;   // 8×8 layout for C/D
-};
-```
+MMA_Traits provides this metadata - information about the operation that doesn't exist in the hardware instruction itself but is essential for using it correctly.
 
-3. atom
+3. MMA_Atom - the smallest unit
+an atom is the smallest matrix multiplication the hardware can perform in one operation.
+for example: A specific Tensor Core might be able to multiply a 16×8 matrix by an 8×8 matrix in one go. That's one "atom" of computation.
+you can't break it down smaller - it's atomic.
 
-combines operation and trait into a usable object
+4. TiledMMA - scaling Up
+how do I combine multiple atoms to handle larger matrices?"
 
-```
-using MyAtom = MMA_Atom<SM70_8x8x4_F32F16F16F32_NT>;
-MyAtom atom;
-```
+It has two extension methods:
+ - AtomLayoutMNK - Use more execution threads (parallel processing)
 
-4. titlemmma - scales up a single atom to handle larger tiles by replicating and interleaving Atoms across threads and values.
+Like hiring more workers to do more tasks simultaneously
 
-```
-// Single Atom (8×8×4)
-TiledMMA mma = make_tiled_mma(SM70_8x8x4_F32F16F16F32_NT{});
+ - ValLayoutMNK - Repeat the same atom multiple times (serial processing)
 
-// Equivalent explicit form:
-TiledMMA mma = make_tiled_mma(SM70_8x8x4_F32F16F16F32_NT{},
-                              Layout<Shape<_1,_1,_1>>{},  // 1×1×1 Atom layout
-                              Tile<_8,_8,_4>{});          // Tile size matches Atom
-```
+Like one worker doing the same task multiple times
+
+5. ThrMMA - thread level view
+
+in CUDA programming, we need to write code for individual threads
+
+each thread needs to know what work to do
+
+ThrMMA takes a specific thread ID and tells that thread:
+- Here's your slice of matrix A
+- Here's your slice of matrix B  
+- Here's where your results go in matrix C
+
+- `partition_A/B/C()` - What part of the matrix does this thread handle?
+- `partition_fragment_A/B/C()` - Put that data into registers for computation
