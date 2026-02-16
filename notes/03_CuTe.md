@@ -485,3 +485,41 @@ ThrMMA takes a specific thread ID and tells that thread:
 
 - `partition_A/B/C()` - What part of the matrix does this thread handle?
 - `partition_fragment_A/B/C()` - Put that data into registers for computation
+
+
+
+### pipelining
+
+taking the instance of blocked gemm, if we have 1000 x 1000 matrix, we usually create smaller blocks of example 100 x 100 and then iterate across the depth direction and calculate the dot products to get the result. the idea of pipelining is to overlap the operations so the gpu is used more efficiently.
+
+for the tile processing we do, the flo is basically -
+```
+load from global ---> shared memory --> registers
+
+
+without pipelining
+
+Tile 0: [LDGSTS -> LDSM -> MMA] -> wait -> 
+Tile 1: [LDGSTS -> LDSM -> MMA] -> wait -> 
+Tile 2: [LDGSTS -> LDSM -> MMA]
+
+
+with pipelining
+
+Time 1: Tile 0 LDGSTS
+Time 2: Tile 0 LDSM,    Tile 1 LDGSTS
+Time 3: Tile 0 MMA,     Tile 1 LDSM,    Tile 2 LDGSTS
+Time 4: Tile 1 MMA,     Tile 2 LDSM,    Tile 3 LDGSTS
+
+```
+
+
+after the ampere gpus, we have this `cp.async` that issues copy and then move onto to another instruction. for synchronization, we have the commit and wait -
+1. commit: mark a checkpoint - "i've issued a copy command"
+2. wait<N>: Wait until at most N copy operations are still incomplete
+
+
+wait<1>  // Wait until at most 1 copy is incomplete
+
+wait<0>  // Wait until 0 copies are incomplete
+         // This means ALL copies are DONE
