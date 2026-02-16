@@ -523,3 +523,71 @@ wait<1>  // Wait until at most 1 copy is incomplete
 
 wait<0>  // Wait until 0 copies are incomplete
          // This means ALL copies are DONE
+
+
+### swizzling
+
+1. spatial locality - if you access data at one memory location, you're likely to access nearby memory locations soon.
+2. temporal locality - if you access a memory location now, you'll probably access it again soon.
+
+shared memory is laid out as set of 32 banks, each bank handles 4 bytes. consecutive 4 bytes go to the banks next to each other.
+
+```
+Memory Address (bytes)    Bank Number    What's stored
+0-3                       Bank 0         First 4 bytes
+4-7                       Bank 1         Second 4 bytes
+8-11                      Bank 2         Third 4 bytes
+12-15                     Bank 3         Fourth 4 bytes
+...
+124-127                   Bank 31        32nd 4 bytes
+128-131                   Bank 0         33rd 4 bytes (wraps back!)
+132-135                   Bank 1         34th 4 bytes
+```
+
+
+```
+bank number = (address / 4) % 32
+```
+
+1. address 8 = (8/4) % 32 = 2
+2. address 128 = 32 % 32 = 0
+3. address 140 = 35 % 32 = 3
+
+
+bank conflicts occur when different threads try to access data from the same bank.
+if 2 threads compete, then it takes **2 cycles** instead of 1. This is a "2 way conflict"
+
+
+- vectorized reads - instead of threads reading 4 bytes, read for example 16 bytes(16 * 8 = 128 bits)
+
+thread 0 reads address 0 - 15
+thread 1 reads address 16 - 31
+
+
+we already know
+
+bank 0 --> data from address 0 - 3
+bank 1 --> 4 - 7
+bank 2 --> 8 - 11
+bank 3 --> 12 - 15
+
+
+this means thread 0 accesses bank 0, 1, 2 and 3 at one cycle!
+
+if we have 32 threads, then total data accessed = 32 * 16 = 512 bytes
+
+but banks can handle at most = 32 * 4 = 128 bytes
+
+so we need to do this in 512 / 128 = 4 cycles
+
+
+- cycle 1
+
+Thread 0: addresses 0-15    -> Banks 0,1,2,3
+Thread 1: addresses 16-31   -> Banks 4,5,6,7
+Thread 2: addresses 32-47   -> Banks 8,9,10,11
+Thread 3: addresses 48-63   -> Banks 12,13,14,15
+Thread 4: addresses 64-79   -> Banks 16,17,18,19
+Thread 5: addresses 80-95   -> Banks 20,21,22,23
+Thread 6: addresses 96-111  -> Banks 24,25,26,27
+Thread 7: addresses 112-127 -> Banks 28,29,30,31
