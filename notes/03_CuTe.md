@@ -591,3 +591,6 @@ Thread 4: addresses 64-79   -> Banks 16,17,18,19
 Thread 5: addresses 80-95   -> Banks 20,21,22,23
 Thread 6: addresses 96-111  -> Banks 24,25,26,27
 Thread 7: addresses 112-127 -> Banks 28,29,30,31
+
+
+#to-do work out swizzling for simple and complex cases
