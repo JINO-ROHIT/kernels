@@ -8,3 +8,7 @@ nvcc -arch=sm_89 -std=c++17 -I /home/jrohit/Desktop/projects/kernels/cutlass/inc
 /home/jrohit/Desktop/projects/kernels/cute_kernels/03_vector_add/cute_version.cu  -o /home/jrohit/Desktop/projects/kernels/cute_kernels/03_vector_add/cute_version \
 && ./cute_version
 
+nvcc -arch=sm_89 -std=c++17 -I /home/jrohit/Desktop/projects/kernels/cutlass/include \
+-I /home/jrohit/Desktop/projects/kernels/cutlass/tools/util/include \
+/home/jrohit/Desktop/projects/kernels/cute_kernels/03_vector_add/cute_version_faster.cu  -o /home/jrohit/Desktop/projects/kernels/cute_kernels/03_vector_add/cute_version_faster \
+&& ./cute_version_faster
