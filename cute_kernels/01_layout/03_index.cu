@@ -13,7 +13,7 @@ int main() {
     std::cout << "stride = " << stride(lol) << "\n";
     std::cout << "size = " << size(lol) << "\n";
     std::cout << "rank = " << rank(lol) << "\n";
-
+    std::cout << "cosize = " << cosize(lol) << "\n";
     std::cout << "element at (2, 1) = " << lol(2, 1) << std::endl;
 
     print_layout(lol);
