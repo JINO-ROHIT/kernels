@@ -210,3 +210,5 @@ test
 *.html
 *.nsys-rep
 *.sqlite
+*.cubin
+*.ptx
