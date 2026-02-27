@@ -28,3 +28,9 @@ profile using nvidia compute
 ```
 sudo -E ncu-ui
 ```
+
+for cute dsl kernels
+
+```
+sudo ncu $(which python3) <03_naive_vadd.py>
+```
