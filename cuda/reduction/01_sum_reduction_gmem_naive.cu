@@ -1,3 +1,5 @@
+// launch multiple blocks with a single thread, partial sum across each block, and second pass sum them
+
 #include <cuda_runtime.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -70,7 +72,7 @@ int main() {
     printf("diff    : %.6f\n", fabsf(cpu_sum - gpu_sum));
     printf("match   : %s\n\n", fabsf(cpu_sum - gpu_sum) < 1e-1f ? "YES" : "NO");
 
-    // --- benchmarking with cuda events ---
+    // --- benchmarking with cuda events(also do ncu) ---
     cudaEvent_t start, stop;
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
