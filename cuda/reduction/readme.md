@@ -9,7 +9,9 @@ implements a 2 pass kernels -
 
 2. `02_sum_reduction_gmem_single_block`
 
-- implements a tree based reduction that works for power of 2 size vectors. (high branch divergence)
+- implements a tree based reduction that works for power of 2 size vectors. (high branch divergence). has a branch efficieny of 66%
 
+3. `03_sum_reduction_fix_divergence`
 
+- implement tree bas3ed reduction that now strides from the backward direction, halving each time step. branch efficiency jumps to 99.32 %
 
