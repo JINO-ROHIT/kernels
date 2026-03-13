@@ -23,3 +23,13 @@ nvcc -std=c++17 -I /home/jrohit/Desktop/projects/kernels/cutlass/include \
 /home/jrohit/Desktop/projects/kernels/cute_kernels/01_layout/07_complement.cu  -o /home/jrohit/Desktop/projects/kernels/cute_kernels/01_layout/07_complement \
 && ./07_complement && rm 07_complement
 
+nvcc -std=c++17 -I /home/jrohit/Desktop/projects/kernels/cutlass/include \
+-I /home/jrohit/Desktop/projects/kernels/cutlass/tools/util/include \
+/home/jrohit/Desktop/projects/kernels/cute_kernels/01_layout/08_slice.cu  -o /home/jrohit/Desktop/projects/kernels/cute_kernels/01_layout/08_slice \
+&& ./08_slice && rm 08_slice
+
+nvcc -std=c++17 -I /home/jrohit/Desktop/projects/kernels/cutlass/include \
+-I /home/jrohit/Desktop/projects/kernels/cutlass/tools/util/include \
+/home/jrohit/Desktop/projects/kernels/cute_kernels/01_layout/09_division.cu  -o /home/jrohit/Desktop/projects/kernels/cute_kernels/01_layout/09_division \
+&& ./09_division && rm 09_division
+
