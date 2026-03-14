@@ -19,6 +19,8 @@ warp size: 32
 max threads per SM: 1536
 max size of each dimension in a block: 1024 x 1024 x 64
 max size of each dimension in a grid: 2147483647 x 65535 x 65535
+SM: 34
+Tensor Cores: 34 * 4 = 136
 ```
 
 ### profiler
