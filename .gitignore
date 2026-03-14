@@ -212,3 +212,4 @@ test
 *.sqlite
 *.cubin
 *.ptx
+*.ipynb
