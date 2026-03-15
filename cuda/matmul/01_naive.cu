@@ -50,42 +50,24 @@ int main() {
     dim3 gridDim(CEIL_DIV(M, BLOCKSIZE), CEIL_DIV(N, BLOCKSIZE), 1);
     dim3 blockDim(BLOCKSIZE, BLOCKSIZE);  // 32x32 = 1024 threads
     
+    // warmup
     naive_kernel<BLOCKSIZE><<<gridDim, blockDim>>>(M, N, K, d_A, d_B, d_C);
-    
     cudaDeviceSynchronize();
-    cudaError_t err = cudaGetLastError();
-    if (err != cudaSuccess) {
-        printf("CUDA Error: %s\n", cudaGetErrorString(err));
-    }
-    
-    cudaMemcpy(h_C, d_C, M * N * sizeof(float), cudaMemcpyDeviceToHost);
-    
-    cudaFree(d_A);
-    cudaFree(d_B);
-    cudaFree(d_C);
-    free(h_A);
-    free(h_B);
-    free(h_C);
-    
-    return 0;
+
+    cudaEvent_t tStart, tStop;
+    cudaEventCreate(&tStart);
+    cudaEventCreate(&tStop);
+
+    cudaEventRecord(tStart);
+    naive_kernel<BLOCKSIZE><<<gridDim, blockDim>>>(M, N, K, d_A, d_B, d_C);
+    cudaEventRecord(tStop);
+    cudaEventSynchronize(tStop);
+
+    float ms = 0.0f;
+    cudaEventElapsedTime(&ms, tStart, tStop);
+
+    double flops  = 2.0 * M * N * K;                
+    double tflops = flops / (ms * 1e9);     
+    printf("kernel time : %.4f ms\n", ms);
+    printf("throughput  : %.4f TFLOP/s\n\n", tflops);
 }
-
-
-// total SM = 34
-// each SM has 1536 threads
-// Register per SM = 65536
-
-
-// kernel
-// 1 block = 16 * 16 = 256 threads
-// 40 registers per thread
-
-// total register in a block = 256 * 40 = 10240
-
-// thread limit = 1536 / 256 = 6 blocks
-// register limit = 65536 / 10240 = 6 blocks
-
-// total blocks launched = (4096 * 4096) / (16 * 16) = 65536 blocks
-// how many blocks active = 34 * 6 = 204 blocks
-
-// waves needed = 321.25 (matches the profiler)
