@@ -4,7 +4,7 @@
 #define CEIL_DIV(a, b) (((a) + (b) - 1) / (b))
 
 template <const int BLOCKSIZE>
-__global__ void naive_kernel(int M, int N, int K,
+__global__ void coalesce_kernel(int M, int N, int K,
                              const float *A, const float *B, float *C) {
 
     const int row = blockIdx.x * BLOCKSIZE + (threadIdx.x / BLOCKSIZE);
@@ -49,22 +49,24 @@ int main() {
     dim3 gridDim(CEIL_DIV(M, BLOCKSIZE), CEIL_DIV(N, BLOCKSIZE), 1);
     dim3 blockDim(BLOCKSIZE, BLOCKSIZE);  // 16x16 = 256 threads
     
-    naive_kernel<BLOCKSIZE><<<gridDim, blockDim>>>(M, N, K, d_A, d_B, d_C);
-    
+    coalesce_kernel<BLOCKSIZE><<<gridDim, blockDim>>>(M, N, K, d_A, d_B, d_C);    
     cudaDeviceSynchronize();
-    cudaError_t err = cudaGetLastError();
-    if (err != cudaSuccess) {
-        printf("CUDA Error: %s\n", cudaGetErrorString(err));
-    }
-    
-    cudaMemcpy(h_C, d_C, M * N * sizeof(float), cudaMemcpyDeviceToHost);
-    
-    cudaFree(d_A);
-    cudaFree(d_B);
-    cudaFree(d_C);
-    free(h_A);
-    free(h_B);
-    free(h_C);
-    
-    return 0;
+
+    cudaEvent_t tStart, tStop;
+    cudaEventCreate(&tStart);
+    cudaEventCreate(&tStop);
+
+    cudaEventRecord(tStart);
+    coalesce_kernel<BLOCKSIZE><<<gridDim, blockDim>>>(M, N, K, d_A, d_B, d_C);    
+    cudaEventRecord(tStop);
+    cudaEventSynchronize(tStop);
+
+    float ms = 0.0f;
+    cudaEventElapsedTime(&ms, tStart, tStop);
+
+    double flops  = 2.0 * M * N * K;                
+    double tflops = flops / (ms * 1e9);     
+    printf("kernel time : %.4f ms\n", ms);
+    printf("throughput  : %.4f TFLOP/s\n\n", tflops);
+
 }
