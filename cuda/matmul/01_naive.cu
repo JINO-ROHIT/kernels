@@ -3,6 +3,7 @@
 
 #define CEIL_DIV(a, b) (((a) + (b) - 1) / (b))
 
+
 template <const int BLOCKSIZE>
 __global__ void naive_kernel(int M, int N, int K,
                              const float *A, const float *B, float *C) {
@@ -48,7 +49,7 @@ int main() {
     cudaMemcpy(d_C, h_C, M * N * sizeof(float), cudaMemcpyHostToDevice);
 
     dim3 gridDim(CEIL_DIV(M, BLOCKSIZE), CEIL_DIV(N, BLOCKSIZE), 1);
-    dim3 blockDim(BLOCKSIZE, BLOCKSIZE);  // 32x32 = 1024 threads
+    dim3 blockDim(BLOCKSIZE, BLOCKSIZE); 
     
     // warmup
     naive_kernel<BLOCKSIZE><<<gridDim, blockDim>>>(M, N, K, d_A, d_B, d_C);
