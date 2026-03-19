@@ -14,4 +14,4 @@ to reach: rtx 4060 ti tensor core peak for fp16 is ~88 TFLOP/s(dense)
 | naive_ptx | 111.6388 | 1.2311 | 1.48x |
 | coalesced  | 98.8539 | 1.3903 | 1.67x |
 | coalesced_ptx | 101.0688 | 1.3599 | 1.63x |
-| WMMA | 16.4905 | 8.3344 | 10.1x |
+| WMMA | 13.4257 | 10.2370 | 12.29x |

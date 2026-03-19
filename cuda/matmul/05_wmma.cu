@@ -5,8 +5,11 @@
 #include <cuda_fp16.h>
 #include <mma.h>
 
+#include "utils.h"
+
 using namespace nvcuda;
 
+// as long as the matrices are / by the WMMA, the kernel is correct
 #define M 4096
 #define N 4096
 #define K 4096
@@ -74,7 +77,8 @@ int main()
 
     __half* h_A      = (__half*)malloc(sizeA * sizeof(__half));
     __half* h_B      = (__half*)malloc(sizeB * sizeof(__half));
-    float*  h_C      = (float*) malloc(sizeC * sizeof(float));
+    float*  h_C      = (float*) malloc(sizeC * sizeof(float)); // to store gpu result
+    float* h_C_cpu   = (float*) malloc(sizeC * sizeof(float)); // to store cpu result
 
     srand(42);
     for (size_t i = 0; i < sizeA; ++i) {
@@ -120,8 +124,12 @@ int main()
 
     double flops  = 2.0 * M * N * K;                
     double tflops = flops / (ms * 1e9);     
-    printf("krnel time : %.4f ms\n", ms);
+    printf("kernel time : %.4f ms\n", ms);
     printf("throughput  : %.4f TFLOP/s\n\n", tflops);
 
-    // cudaMemcpy(h_C, d_C, sizeC * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_C, d_C, sizeC * sizeof(float), cudaMemcpyDeviceToHost);
+
+    // some cpu stuff(turn off for large matrices)
+    // cpu_matmul_half(h_A, h_B, h_C_cpu, M, N, K);
+    // bool correct = check_correctness(h_C_cpu, h_C, sizeC);
 }
