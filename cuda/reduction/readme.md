@@ -18,3 +18,8 @@ implements a 2 pass kernels -
 4. `04_smem.cu`
 
 - implement the reduction now inside shared memory.
+
+
+### learning the series of reduction implementation by nvidia
+
+1. `01_nvidia_lecture_baseline.cu` - 37.63 microsecond 46.7% DRAM throughput basically the bandwidth utilization 
