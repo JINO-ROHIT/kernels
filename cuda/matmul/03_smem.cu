@@ -1,3 +1,5 @@
+// remember this is A = M x K and B = K x N
+
 #include <cuda_runtime.h>
 #include <stdio.h>
 
