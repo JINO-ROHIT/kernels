@@ -95,3 +95,63 @@ At a high level, the logic flow of the L1 cache is:
 4. In the tag stage, the GMEM address tags are compared against those stored in the target set to determine if the data is resident in L1.
 5. On a hit, the request is served directly from the data array (just like SMEM).
 6. On a miss, the request propagates to L2 (and beyond, if necessary, up to GMEM or peer GPU memory). When the data returns, it is cached in L1, evicting an existing line, and in parallel sent back to the requesting warp.
+
+### PTX and SAAS
+
+the native ISa is SAAS.
+ptx is the virtual ISA(assembly) for nvidia gpus. the ptx is not directly run but compiled by ptxas into SAAS
+
+#### case study - mat mul kernels
+
+ref `01_matmul.cu`.
+
+<img src="../assets/tile_quantization.png" alt="alt text" width="800"/>
+
+A few interesting optimizations happen automatically in hardware when our GMEM accesses are coalesced -
+1. (Matrix A) For a warp reading from A, 32 per-thread LDG.32 instructions (all from the same address) are merged into a single warp-level LDG.32, whose result is broadcast to all threads in the warp.
+2. (Matrix B) For a warp reading from B, 32 consecutive per-thread LDG.32 instructions are combined into a single 128B warp-level load. This relies on the threads reading along the contiguous dimension. If instead they read down a column (non-contiguous), the hardware would need to issue multiple warp-level instructions.
+
+"32 per-thread LDG.32 instructions" means all 32 threads in the warp each issue a LDG.32 where each thread is trying to load its own 4-byte float from global memory. The warp then has 32 pending loads. 
+At this point the hardware looks at the addresses - 
+- All the same address (Matrix A case), here issue one transaction, broadcast result to all 32 threads
+- 32 consecutive addresses spanning 128B (Matrix B case), here coalesce into one 128B transaction, each thread gets its 4 bytes back.
+
+
+```
+when we launch (4096/32) * (4096/32) = 16,384 thread blocks in total. However, the H100 PCIe only has 114 SMs.
+
+so how many blocks can run concurrently on each SM?
+
+In general, three resources limit concurrency:
+1. Registers
+2. Shared memory (SMEM)
+3. Threads/warps
+
+if the kernel uses 32 registers per thread. With 1024 threads per block, that's 1024×32 = 32,768 registers per block. 
+Since each SM has 65,536 registers, this caps us at 2 blocks per SM.
+
+On Hopper (compute capability 9.0), the maximum number of threads per SM is 2048. With 1024 threads per block, that again caps us at 2 blocks per SM.
+
+even if a kernel doesn't explicitly use SMEM, there's always a system-level overhead of 1024B per block. With the default SMEM allocation of 8192 B per SM that would allow up to 8 blocks. (8192/1024)
+
+Putting it all together: max blocks/SM = min(2,2,8) = 2.
+
+So, at any given time, this kernel can have up to 114×2 = 228 thread blocks resident on the GPU.
+
+This means we'll need 16,384 / 228 = ~71.86 so-called waves in order to complete the matmul operation
+```
+
+
+### occupancy
+
+occupancy usually refers to the number of concurrent blocks that can run on an SM. There's also a closely related definition -
+Occupancy (warps) - the ratio of active warps to the maximum number of warps per SM.
+
+Here, "active warps" means the warps of a thread block after they've been allocated resources (registers, SMEM, etc.) at launch.
+
+```
+just like tile quantization, we also have wave quantization. 
+
+For example, suppose I launch a kernel with 114 blocks (exactly the number of SMs on my H100 PCIe). And suppose we can only run 1 block / SM at the time. With only one block per SM, the kernel finishes in a single wave. Now imagine I increase the launch to 115 blocks. Suddenly, execution time nearly doubles — because we need two waves - yet most of the resources in that second wave sit idle, with only a single block running:
+```
+
