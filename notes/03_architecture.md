@@ -72,11 +72,26 @@ here the access patterns matter, because of the physics of the dram cells. when 
 
 these are made of sram cells. smem is organized into 32 banks, each bank 32 bits wide (4 bytes).
 
+<img src="../assets/smem_banks.png" alt="alt text" width="800"/>
+
 SMEM can serve data from all 32 banks (128B) in a single cycle — but only if one rule is respected:
 
 Threads in a warp must not access different addresses within the same bank. Otherwise, those requests are serialized across multiple cycles.
 
 This situation is known as a bank conflict. If N threads access different addresses of the same bank, the result is an N-way bank conflict and the warp’s memory request takes N cycles to complete.
 
+<img src="../assets/conflicts.png" alt="alt text" width="800"/>
 
-#TO-DO - learn to read ptx
+if multiple threads in a warp access the same address within a bank, SMEM can broadcast (or multicast) that value to all of them.
+
+
+### L1 model
+
+At a high level, the logic flow of the L1 cache is:
+
+1. A warp issues a memory request (either to SMEM or GMEM).
+2. Requests enter the MIO pipeline and are dispatched to the LSUIN router.
+3. The router directs the request: SMEM accesses are served immediately from the data array, while GMEM accesses move on to the tag-comparison stage.
+4. In the tag stage, the GMEM address tags are compared against those stored in the target set to determine if the data is resident in L1.
+5. On a hit, the request is served directly from the data array (just like SMEM).
+6. On a miss, the request propagates to L2 (and beyond, if necessary, up to GMEM or peer GPU memory). When the data returns, it is cached in L1, evicting an existing line, and in parallel sent back to the requesting warp.
