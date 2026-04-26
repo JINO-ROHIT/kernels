@@ -49,3 +49,20 @@ this is actually pretty similar to the naive version and offers no perf boost co
 also the roofline is still pretty memory bound but a bit closer to the line so better.
 
 ![roofline model](assets/roofline_smem.png)
+
+
+3. `03_smem.ncu-rep`
+
+```
+1. fp32 compute throughput - 22% of peak
+
+2. warp stalls
+- now the major stall is stall mio throttle. this stall reason is high in cases of extreme utilization of the MIO pipelines, which include special math instructions, dynamic branches, as well as shared memory instructions.
+- we also have barrier stall because of the new __sync__ we introduced.
+
+3. the L1 hit rate in the smem version is almost nothing
+```
+
+also the roofline is still pretty memory bound but a bit closer to the line so better.
+
+![roofline model](assets/roofline_1dblocktiling.png)
