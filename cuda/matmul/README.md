@@ -12,6 +12,7 @@ tflops = 10^12 flops/s
 3. data to write = 4096^2 * 4B = 67 MB
 
 
+look at `/profilers` for the ncu files and my explanation for what i think the metrics mean.
 
 **whitepaper:** [NVIDIA Ada GPU Architecture](https://images.nvidia.com/aem-dam/Solutions/geforce/ada/nvidia-ada-gpu-architecture.pdf)
 
