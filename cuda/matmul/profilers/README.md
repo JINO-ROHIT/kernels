@@ -44,8 +44,8 @@ this is actually pretty similar to the naive version and offers no perf boost co
 - we also have barrier stall because of the new __sync__ we introduced.
 
 4. the L1 hit rate in the smem version has gone down a lot, since we unlike global memeory where we hit l1 cache each time, we moved it to shared memory.
+```
+
 also the roofline is still pretty memory bound but a bit closer to the line so better.
 
 ![roofline model](assets/roofline_smem.png)
-
-```
