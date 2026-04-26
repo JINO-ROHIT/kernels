@@ -68,27 +68,28 @@ int main() {
     cudaMemcpy(d_B, h_B, K * N * sizeof(float), cudaMemcpyHostToDevice);
     cudaMemcpy(d_C, h_C, M * N * sizeof(float), cudaMemcpyHostToDevice);
 
-    dim3 gridDim(CEIL_DIV(M, BLOCKSIZE), CEIL_DIV(N, BLOCKSIZE), 1);
+    //dim3 gridDim(CEIL_DIV(M, BLOCKSIZE), CEIL_DIV(N, BLOCKSIZE), 1);
+    dim3 gridDim(CEIL_DIV(N, BLOCKSIZE), CEIL_DIV(M, BLOCKSIZE), 1);
     dim3 blockDim(BLOCKSIZE, BLOCKSIZE);  // 16x16 = 256 threads
     
     smem_kernel<BLOCKSIZE><<<gridDim, blockDim>>>(M, N, K, d_A, d_B, d_C);    
-    // cudaDeviceSynchronize();
+    cudaDeviceSynchronize();
 
-    // cudaEvent_t tStart, tStop;
-    // cudaEventCreate(&tStart);
-    // cudaEventCreate(&tStop);
+    cudaEvent_t tStart, tStop;
+    cudaEventCreate(&tStart);
+    cudaEventCreate(&tStop);
 
-    // cudaEventRecord(tStart);
-    // smem_kernel<BLOCKSIZE><<<gridDim, blockDim>>>(M, N, K, d_A, d_B, d_C);    
-    // cudaEventRecord(tStop);
-    // cudaEventSynchronize(tStop);
+    cudaEventRecord(tStart);
+    smem_kernel<BLOCKSIZE><<<gridDim, blockDim>>>(M, N, K, d_A, d_B, d_C);    
+    cudaEventRecord(tStop);
+    cudaEventSynchronize(tStop);
 
-    // float ms = 0.0f;
-    // cudaEventElapsedTime(&ms, tStart, tStop);
+    float ms = 0.0f;
+    cudaEventElapsedTime(&ms, tStart, tStop);
 
-    // double flops  = 2.0 * M * N * K;                
-    // double tflops = flops / (ms * 1e9);     
-    // printf("kernel time : %.4f ms\n", ms);
-    // printf("throughput  : %.4f TFLOP/s\n\n", tflops);
+    double flops  = 2.0 * M * N * K;                
+    double tflops = flops / (ms * 1e9);     
+    printf("kernel time : %.4f ms\n", ms);
+    printf("throughput  : %.4f TFLOP/s\n\n", tflops);
 
 }
