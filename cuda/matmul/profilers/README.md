@@ -25,3 +25,9 @@ even tho we have a very high occupancy, all the warps are stalled on memory.
 also look at the roofline model, we are severly on the memory bound side, but even the memory is not being used efficiently due to memory stalls.
 
 ![roofline model](assets/roofline_naive.png)
+
+2. `02_gemm_coalesce.ncu-rep` - nvcc -O3 -arch=sm_89 --generate-line-info -Xptxas -v 01_naive.cu -o test
+
+```
+this is actually pretty similar to the naive version and offers no perf boost compared because our memory access is already coalesced in v1.
+```

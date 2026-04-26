@@ -47,7 +47,7 @@ int main() {
     cudaMemcpy(d_C, h_C, M * N * sizeof(float), cudaMemcpyHostToDevice);
 
     dim3 gridDim(CEIL_DIV(M, BLOCKSIZE), CEIL_DIV(N, BLOCKSIZE), 1);
-    dim3 blockDim(BLOCKSIZE, BLOCKSIZE);  // 16x16 = 256 threads
+    dim3 blockDim(BLOCKSIZE * BLOCKSIZE);  // 16x16 = 256 threads
     
     coalesce_kernel<BLOCKSIZE><<<gridDim, blockDim>>>(M, N, K, d_A, d_B, d_C);    
     cudaDeviceSynchronize();
