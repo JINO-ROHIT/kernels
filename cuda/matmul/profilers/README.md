@@ -51,7 +51,7 @@ also the roofline is still pretty memory bound but a bit closer to the line so b
 ![roofline model](assets/roofline_smem.png)
 
 
-3. `03_smem.ncu-rep`
+3. `04_1dblocktiling.ncu-rep`
 
 ```
 1. fp32 compute throughput - 22% of peak
