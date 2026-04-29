@@ -25,9 +25,9 @@ def vadd_kernel(mA: cute.Tensor, mB: cute.Tensor, mC: cute.Tensor):
 @cute.jit
 def vadd_host(mA: cute.Tensor, mB: cute.Tensor, mC: cute.Tensor):
 
-    tiled_a = cute.zipped_divide(mA, (1, 8))
-    tiled_b = cute.zipped_divide(mB, (1, 8))
-    tiled_c = cute.zipped_divide(mC, (1, 8))
+    tiled_a = cute.zipped_divide(mA, (1, 4))
+    tiled_b = cute.zipped_divide(mB, (1, 4))
+    tiled_c = cute.zipped_divide(mC, (1, 4))
 
     print("[DSL INFO] Tiled Tensors:")
     print(f"[DSL INFO]   tiled A = {tiled_a}")
@@ -35,7 +35,7 @@ def vadd_host(mA: cute.Tensor, mB: cute.Tensor, mC: cute.Tensor):
     print(f"[DSL INFO]   tiled C = {tiled_c}")
 
     kernel = vadd_kernel(tiled_a, tiled_b, tiled_c)
-    # print(cute.size(tiled_c, mode=[1]))
+    print(cute.size(tiled_c, mode=[1])) # this is the total tiles needed btw
     kernel.launch(
         grid = cute.size(tiled_c, mode=[1]) // 1024,
         block = 1024
