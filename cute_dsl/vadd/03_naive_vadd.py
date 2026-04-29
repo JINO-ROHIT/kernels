@@ -3,6 +3,8 @@ from cutlass.cute.runtime import from_dlpack
 
 import torch
 
+VERBOSE = False
+
 @cute.kernel
 def vadd_kernel(mA: cute.Tensor, mB: cute.Tensor, mC: cute.Tensor):
     bidx, bdim, tidx = cute.arch.block_idx()[0], cute.arch.block_dim()[0], cute.arch.thread_idx()[0] 
@@ -24,6 +26,13 @@ def vadd_host(mA: cute.Tensor, mB: cute.Tensor, mC: cute.Tensor):
     m, n = mA.shape
 
     kernel = vadd_kernel(mA, mB, mC)
+
+    grid = (m * n) // 1024
+    block = 1024
+
+    if VERBOSE:
+        print(f"the kernel is launching with {grid} blocks and {block} threads")
+
     kernel.launch(
         grid = (m * n) // 1024,
         block = 1024
