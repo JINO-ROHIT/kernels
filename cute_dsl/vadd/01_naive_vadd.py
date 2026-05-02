@@ -61,24 +61,24 @@ c = a + b
 2 loads + 1 store
 '''
 
-# def benchmark(callable, a_, b_, c_):
-#     avg_time_us = cute.testing.benchmark(
-#         callable,
-#         kernel_arguments=cute.testing.JitArguments(a_, b_, c_),
-#         warmup_iterations=5,
-#         iterations=100,
-#     )
+def benchmark(callable, a_, b_, c_):
+    avg_time_us = cute.testing.benchmark(
+        callable,
+        kernel_arguments=cute.testing.JitArguments(a_, b_, c_),
+        warmup_iterations=5,
+        iterations=100,
+    )
 
-#     dtype = a_.element_type
+    dtype = a_.element_type
 
-#     bytes_per_element = dtype.width // 8
-#     total_bytes = num_elements * bytes_per_element
+    bytes_per_element = dtype.width // 8
+    total_bytes = num_elements * bytes_per_element
 
-#     achieved_bandwidth = total_bytes / (avg_time_us * 1000)  # GB/s
+    achieved_bandwidth = total_bytes / (avg_time_us * 1000)  # GB/s
 
-#     print(f"Performance Metrics:")
-#     print(f"-------------------")
-#     print(f"Kernel execution time: {avg_time_us:.4f} us")
-#     print(f"Memory throughput: {achieved_bandwidth:.2f} GB/s")
+    print(f"Performance Metrics:")
+    print(f"-------------------")
+    print(f"Kernel execution time: {avg_time_us:.4f} us")
+    print(f"Memory throughput: {achieved_bandwidth:.2f} GB/s")
 
-# benchmark(naive_elementwise_add_, a_, b_, c_)
+benchmark(naive_elementwise_add_, a_, b_, c_)

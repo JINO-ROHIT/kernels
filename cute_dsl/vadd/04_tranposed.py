@@ -151,4 +151,4 @@ def benchmark(callable, a_, b_, c_):
     print(f"Kernel execution time: {avg_time_us:.4f} us")
     print(f"Memory throughput: {achieved_bandwidth:.2f} GB/s")
 
-#benchmark(naive_elementwise_add_, a_, b_, c_) # comment out to not mess the profiling
+benchmark(naive_elementwise_add_, a_, b_, c_) # comment out to not mess the profiling
