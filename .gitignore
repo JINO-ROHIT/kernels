@@ -213,3 +213,5 @@ test
 *.cubin
 *.ptx
 *.ipynb
+
+hopper/
