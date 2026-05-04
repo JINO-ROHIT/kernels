@@ -47,9 +47,16 @@ Kernel execution time: 4606.7599 us
 Memory throughput: 174.81 GB/s
 ```
 
-8. use a 128 bit copy width
+8. use a 128 bit copy width ( this involves a lot of manual composition to create the thread layout)
 
 ```
 Kernel execution time: 3076.3004 us
 Memory throughput: 261.78 GB/s
+```
+
+9. also use a 128 bit copy width but uses tiled_copy_tv + partition_S that automatically handles the thread value mapping without composition.
+
+```
+Kernel execution time: 3080.1920 us
+Memory throughput: 261.45 GB/s
 ```
