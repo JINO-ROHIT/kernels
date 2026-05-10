@@ -215,3 +215,4 @@ test
 *.ipynb
 
 hopper/
+cute_dsl_docs/
