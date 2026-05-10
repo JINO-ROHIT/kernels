@@ -37,6 +37,7 @@ the compilation process follows two main stages:
 cuda c++  ->  ptx  ->  sass  ->  execute the kernel
 ```
 
+![compilation diagram](../assets/ptx.png)
 ---
 
 ## compute capability
