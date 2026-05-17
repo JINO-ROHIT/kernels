@@ -217,3 +217,5 @@ test
 cute_dsl_docs/
 
 .vscode/
+notes.md
+05_pipeling_coelasced_comments.py
