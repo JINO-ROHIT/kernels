@@ -214,5 +214,6 @@ test
 *.ptx
 *.ipynb
 
-hopper/
 cute_dsl_docs/
+
+.vscode/
