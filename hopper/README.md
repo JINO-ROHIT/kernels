@@ -9,6 +9,64 @@ this article should help you get started with hopper architecture. we will mostl
 - and a lot of async features.
 
 
+### some background
+
+there are two problems with the thread block design that we have in ampere/ada architecture - 
+
+1. a single thread block can only only a limited shared memory specific to its thread block. taking the H800 PCIe 80GB as an example, its global memory size is 80GB, while each thread block can only use a maximum of 227KB of smem. this means it can only perform a small sub task in smem and after a point you will have to use the gmem if it cant fit inside the smem.
+
+2. low utilization rate of SMs. the max threads that can be configured for a single thread block is 1024. if each thread block processes large amounts of data and computations, and the kernel only launches a small number of thread blocks at a time, some SMs may be idle, and computational resources may not be fully utilized, thus limiting the overall performance of the kernel. for example, during decode.
+
+so they decided to introduce thread block clusters.
+
+### thread block clusters
+
+<img src="../assets/thread_block_clusters.png">
+
+a thread block cluster consists of several thread blocks called cluster size. the H100 has a maximum cluster size of 16. all threads in a cluster can access the smem distributed across different thread blocks. this Shared Memory is called Distributed Shared Memory which is just a collection of smem, its size equal to the sum of the Shared Memory sizes of all Thread Blocks. since different Thread Blocks in a Thread Block Cluster may reside on different SMs (Streaming Memory Controllers), and the L1 Cache is unique to each SM (one SM cannot access the L1 Cache of another), Distributed Shared Memory needs to use efficient memory accessible to all SMs. L2 Cache is accessible to all SMs, while Distributed Shared Memory only needs to be accessible to SMs within a single cluster. Does Hopper have a memory layer that allows access to the shared memory of all SMs within a cluster? The answer is yes. The Hopper architecture adds an SM-to-SM Network layer within the cluster, located between the L1 and L2 Caches. SMs within a Thread Block Cluster can access the shared memory of other SMs through this network. 
+
+### problem with sync copy
+
+check `sync_copy.cu`, even though it looks like one copy, gpu cannot directly do global to shared memory.
+
+it becomes something like this -
+
+1. compute global address
+2. compute shared-memory address
+3. LDG: load global memory into a register
+4. STS: store that register into shared memory
+
+check `sync_copy_loop.cu`, because num_per_threads is a runtime value, the compiler cannot fully specialize the loop. it ends up doing a bunch of sync global loads and shared stores being reaching sync threads.
+
+
+cp.async reduces instruction overhead, avoids using registers as the data bridge, and lets the copy run asynchronously so the kernel can overlap memory movement with computation.
+
+cuda::memcpy_async is asynchronous. when a thread issues the copy, it does not wait for the data to arrive in shared memory immediately. The thread
+can continue executing later instructions. because the copy is async, plain __syncthreads() is not enough by itself to mean “the async copy has completed.” you need a synchronization object tied to the async copy. that is what cuda::barrier / mbarrier is doing.
+
+```
+cuda::memcpy_async(...);     // start global -> shared copy
+// do unrelated math here while copy is in flight
+barrier.arrive_and_wait();   // wait until async copy is complete
+// now safely use shared memory
+```
+
+this still has a limitation where each thread still computes source and destination addresses for the copy. for complicated 2D/3D tiles, those address
+calculations can be expensive. Hopper TMA improves that by letting you describe a tensor/tile layout once, then have hardware move a whole tile with less per thread address calculation.
+
+### TMA
+
+regardless of being sync or async copies, copying large blocks of video memory involves splitting them into several smaller blocks and using loops and multiiple threads to complete the copying of these smaller blocks. each copy requires calculating the starting address of the video memory which cannot be overlapped by asynchronous copies, and the number of computational instructions increases linearly with the number of smaller video memory blocks. the reason for explicitly calculating addresses is mainly due to address discontinuities. for example, in matrix multiplication, when dividing global memory into blocks and loading each small block into shared Memory, the addresses of different rows within the video memory block are not contiguous and need to be calculated manually.
+
+to solve this problem, the Hopper architecture introduced the TMA feature. TMA supports the following functions -
+1. bulk asynchronous memory copy - uses the cuda::memcpy_async. Similar to memcpy on the CPU, this supports copying an entire block of memory, reducing the number of copy instructions.
+2. multi dimensional memory block copying  - this supports copying non-contiguous multi-segment memory blocks. In practical use, it's necessary to distinguish between one-dimensional and multi-dimensional memory block copying. Multi-dimensional memory block copying requires calling the cuTensorMapEncode API on the host side to calculate the address mapping relationship between memory blocks. Then, it's passed to the Kernel function via a CUtensorMap type parameter annotated with __grid_constant__, calling TMA's asynchronous copy interface to complete the multi-dimensional copy. 
+3. supports asynchronous copying from Shared Memory to Global Memory . The Ampere architecture only supports asynchronous copying from Global Memory to Shared Memory, while the Hopper architecture supports reverse copying operations, improving the kernel's read and write performance across different storage structures.
+
+From a hardware perspective, the TMA resides within the SM, with each SM having its own dedicated TMA. The TMA controls the loading of data from the SMEM into registers, where the tensor core or CUDA core performs the computation.
+
+From a software perspective, unlike synchronous and asynchronous modes, TMA's model transfer is performed using a single thread. data transfer is automatically handled by TMA, and the thread can be used for other purposes.
+
 ### gpu organization
 
 the full die is divided into -
@@ -137,3 +195,201 @@ shared memory is divided into 32 banks, each 4 bytes wide. consecutive 4-byte wo
 bank conflicts happen when two or more threads in a warp access different addresses in the same bank. the hardware serializes those accesses  2 threads hitting the same bank = 2 cycles, 8 threads = 8 cycles
 
 TMA async copies bypass the bank conflict problem entirely when loading from global memory into shared memory, since they write to smem directly without going through the warp's execution pipeline.
+
+### TMA multicast
+
+TMA multicast is useful when several CTAs in the same cluster need the same
+global-memory tile. Instead of each CTA loading that tile separately, one CTA
+issues a TMA load and broadcasts the result into the shared memory of multiple
+CTAs in the cluster.
+
+The example in `tma_multicast.cu` uses one cluster with 8 CTAs:
+
+```
+             n=0  n=1  n=2  n=3
+m=0           0    1    2    3
+m=1           4    5    6    7
+```
+
+For a GEMM-like B tile, CTAs in the same `n` column reuse the same B tile, so
+the multicast groups are:
+
+```
+CTA0 -> CTA0, CTA4
+CTA1 -> CTA1, CTA5
+CTA2 -> CTA2, CTA6
+CTA3 -> CTA3, CTA7
+```
+
+The mask is a bitmask of CTA ranks inside the cluster. With `CLUSTER_M = 2` and
+`CLUSTER_N = 4`, the base column mask is:
+
+```
+col_mask = (1 << 0) | (1 << 4) = 0b00010001
+```
+
+Then each producer shifts it by its column:
+
+```
+n=0: 0b00010001 -> ranks 0,4
+n=1: 0b00100010 -> ranks 1,5
+n=2: 0b01000100 -> ranks 2,6
+n=3: 0b10001000 -> ranks 3,7
+```
+
+The important difference from normal 2D TMA is that the destination is
+`shared::cluster`, not just local `shared`, and each target CTA's barrier must
+expect the incoming transaction before the CTAs wait on it.
+
+
+### WGMMA
+
+WGMMA means warp-group matrix multiply accumulate. Older `mma`/`wmma`
+instructions are issued by one warp. Hopper WGMMA is issued by a warp group,
+which is 4 consecutive warps, or 128 threads. The first warp in the group must
+have a warp rank that is a multiple of 4.
+
+The mental model is:
+
+```
+one warp group = 128 threads = one WGMMA participant group
+```
+
+WGMMA supports two common accumulator forms:
+
+```
+D = A * B + D
+D = A * B      // accumulator input D is disabled with ScaleD = 0
+```
+
+For dense bf16/f16 input and f32 output, the instruction shape is usually:
+
+```
+m64 nN k16
+```
+
+`M` is fixed at 64, `K` is 16, and `N` is a multiple of 8. Examples:
+
+```
+m64n8k16
+m64n64k16
+m64n128k16
+m64n256k16
+```
+
+The example in `wgmma.cu` intentionally uses the smallest useful shape:
+
+```
+wgmma.mma_async.sync.aligned.m64n8k16.f32.bf16.bf16
+```
+
+That keeps the output registers small: each of the 128 threads owns 4 `float`
+accumulator registers. Larger shapes like `m64n128k16` need 64 accumulator
+registers per thread.
+
+#### operand locations
+
+For WGMMA:
+
+- `D` is always in registers.
+- `B` must be in shared memory.
+- `A` can be in registers or shared memory.
+
+The examples here use the simpler shared/shared form:
+
+```
+A in shared memory
+B in shared memory
+D in registers
+```
+
+When A and B are both in shared memory, WGMMA does not receive normal pointers.
+It receives encoded shared-memory descriptors:
+
+```cpp
+uint64_t desc_a = make_smem_desc(sA);
+uint64_t desc_b = make_smem_desc(sB);
+```
+
+The descriptor tells WGMMA where the shared-memory tile starts, what its leading
+offset is, what its stride is, and which swizzle layout is used. This matters
+when TMA loads the tile. If TMA used `CU_TENSOR_MAP_SWIZZLE_128B`, the WGMMA
+descriptor also needs to describe 128B swizzle. If those disagree, WGMMA reads
+the wrong logical elements.
+
+In `wgmma.cu` the descriptor is intentionally simple:
+
+```cpp
+desc |= matrix_descriptor_encode(addr);
+desc |= matrix_descriptor_encode(uint64_t(16)) << 16;
+desc |= matrix_descriptor_encode(uint64_t(1024)) << 32;
+```
+
+The address is encoded in 16-byte units. The example uses no swizzle so the
+high swizzle bits are left as zero.
+
+#### instruction flow
+
+WGMMA is asynchronous, so the sequence matters:
+
+```cpp
+warpgroup_arrive();        // wgmma.fence
+wgmma_m64n8k16<0>(...);    // issue async matrix multiply
+warpgroup_commit_batch();  // commit issued WGMMA ops
+warpgroup_wait<0>();       // wait until no WGMMA groups are pending
+```
+
+`wgmma.fence` makes the warp group's register/shared-memory inputs visible to
+WGMMA before the instruction is issued.
+
+`wgmma.mma_async` starts the tensor core operation. It does not mean the result
+is immediately ready.
+
+`wgmma.commit_group` closes the current batch of WGMMA instructions.
+
+`wgmma.wait_group<0>` waits until all committed WGMMA work is complete before
+the code reads or stores the accumulator registers.
+
+If the data came from TMA, there is usually one more requirement before WGMMA:
+
+```cpp
+cuda::ptx::fence_proxy_async(cuda::ptx::space_shared);
+```
+
+That makes shared-memory writes performed through the async proxy visible to
+the generic/WGMMA side.
+
+#### register pressure
+
+The output tile lives in registers. This can get expensive quickly.
+
+For `m64n8k16`:
+
+```
+64 * 8 outputs / 128 threads = 4 floats per thread
+```
+
+For `m64n128k16`:
+
+```
+64 * 128 outputs / 128 threads = 64 floats per thread
+```
+
+For a larger block tile like `128x256`, one 128-thread warp group would need:
+
+```
+128 * 256 outputs / 128 threads = 256 accumulator floats per thread
+```
+
+That is already at the per-thread register limit before loop variables,
+pointers, predicates, and temporary values. When register pressure gets too
+high, the compiler spills to local memory or serializes WGMMA instructions,
+which can show up as warnings like:
+
+```
+Potential Performance Loss: wgmma.mma_async instructions are serialized due to
+insufficient register resources for the wgmma pipeline
+```
+
+The usual fix is to split the work across more warp groups or smaller output
+tiles so each thread owns fewer accumulator registers.
