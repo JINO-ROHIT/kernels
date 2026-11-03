@@ -219,3 +219,8 @@ cute_dsl_docs/
 .vscode/
 notes.md
 05_pipeling_coelasced_comments.py
+
+# Local Nsight Compute reports and compiler artifacts.
+triton/profiles/
+triton/swiglu_block/
+.DS_Store
