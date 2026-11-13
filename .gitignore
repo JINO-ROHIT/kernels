@@ -224,3 +224,6 @@ notes.md
 triton/profiles/
 triton/swiglu_block/
 .DS_Store
+outdir/
+workloads/
+visualizations/
