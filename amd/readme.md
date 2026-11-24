@@ -36,6 +36,15 @@ kernel  - buffer load
 4  4096.0  4096.0   4096.0            305.228615             591.268802
 
 
+kernel - async copy
+
+the first immediate change is that we are using [1,2] size poer thread, the reason being in MI300X (gfx942), a direct global to LDS load transfers up to 4 bytes per lane per instruction. That’s two FP16 or BF16 values per lane. With all 64 lanes active, one instruction can copy 256 bytes into LDS.
+
+that explains the slow down
+    M       N        K  Triton fp16 (TFLOPS)  rocBLAS fp16 (TFLOPS) 
+4  4096.0  4096.0   4096.0            172.488217             591.883725
+
+
 kernel
 
 Buffer operations are an AMD-specific memory access mechanism with built-in out-of-bounds (OOB) checking.
