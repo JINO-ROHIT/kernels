@@ -19,8 +19,24 @@ apt-get update -qq
 apt-get install -y python3.12-dev
 '''
 
+kernel naive.py - use a regular dot product
 
-kernel 2 - buffer load
+        M       N        K  Triton fp16 (TFLOPS)  rocBLAS fp16 (TFLOPS)  
+4  4096.0  4096.0   4096.0              9.879713             598.596515  
+
+
+
+kernel mfa.py - use the 16x16x16 mfa instruction
+
+        M       N        K  Triton fp16 (TFLOPS)  rocBLAS fp16 (TFLOPS) 
+4  4096.0  4096.0   4096.0            224.862615             595.990350 
+
+kernel  - buffer load
+     M       N        K  Triton fp16 (TFLOPS)  rocBLAS fp16 (TFLOPS) 
+4  4096.0  4096.0   4096.0            305.228615             591.268802
+
+
+kernel
 
 Buffer operations are an AMD-specific memory access mechanism with built-in out-of-bounds (OOB) checking.
 The key insight is that buffer ops handle OOB checks in hardware, eliminating the need for branches in the generated code. This is particularly valuable for masked loads common in GEMM kernels.
@@ -71,7 +87,7 @@ a scalar base plus a 32-bit vector offset. If the compiler already generates tha
 form for `gl.load`, switching to buffer operations may not reduce VGPR usage.
 
 
-kernel 3 - async copy
+kernel 2 - async copy
 
 load data directly from global memory into LDS, bypassing registers entirely.
 

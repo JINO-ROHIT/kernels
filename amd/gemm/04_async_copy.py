@@ -20,7 +20,8 @@ def v0_naive(
     stride_cn,
     BLOCK_M: gl.constexpr,
     BLOCK_N: gl.constexpr,
-    BLOCK_K: gl.constexpr,  #
+    BLOCK_K: gl.constexpr,
+    USE_ASYNC_COPY: gl.constexpr,
 ):
 
     pid = gl.program_id(axis=0)
@@ -29,25 +30,27 @@ def v0_naive(
     pid_m = pid // num_pid_n
     pid_n = pid % num_pid_n
 
+    # gfx942 copies one dword (two FP16/BF16 elements) per lane into LDS.
     gLoadLayoutA: gl.constexpr = gl.BlockedLayout(
-        [1, 8],  # sizePerThread
-        [512 // BLOCK_K, BLOCK_K // 8],  # threadsPerWarp
+        [1, 2],  # sizePerThread
+        [128 // BLOCK_K, BLOCK_K // 2],  # threadsPerWarp
         [4, 1],  # warpsPerCTA
         [1, 0],  # order
     )
 
     gLoadLayoutB: gl.constexpr = gl.BlockedLayout(
-        [8, 1],  # sizePerThread
-        [BLOCK_K // 8, 512 // BLOCK_K],  # threadsPerWarp
+        [2, 1],  # sizePerThread
+        [BLOCK_K // 2, 128 // BLOCK_K],  # threadsPerWarp
         [1, 4],  # warpsPerCTA
         [0, 1],  # order
     )
 
-    sharedLayoutA: gl.constexpr = gl.SwizzledSharedLayout(1, 1, 1, order=[1, 0])
-    sharedLayoutB: gl.constexpr = gl.SwizzledSharedLayout(1, 1, 1, order=[0, 1])
+    if USE_ASYNC_COPY:
+        sharedLayoutA: gl.constexpr = gl.SwizzledSharedLayout(1, 1, 1, order=[1, 0])
+        sharedLayoutB: gl.constexpr = gl.SwizzledSharedLayout(1, 1, 1, order=[0, 1])
 
-    smemA = gl.allocate_shared_memory(a_ptr.dtype.element_ty, [BLOCK_M, BLOCK_K], sharedLayoutA)
-    smemB = gl.allocate_shared_memory(b_ptr.dtype.element_ty, [BLOCK_K, BLOCK_N], sharedLayoutB)
+        smemA = gl.allocate_shared_memory(a_ptr.dtype.element_ty, [BLOCK_M, BLOCK_K], sharedLayoutA)
+        smemB = gl.allocate_shared_memory(b_ptr.dtype.element_ty, [BLOCK_K, BLOCK_N], sharedLayoutB)
 
     offs_am = gl.arange(0, BLOCK_M, gl.SliceLayout(1, gLoadLayoutA))
     offs_ak = gl.arange(0, BLOCK_K, gl.SliceLayout(0, gLoadLayoutA))
@@ -71,23 +74,21 @@ def v0_naive(
     acc = gl.zeros((BLOCK_M, BLOCK_N), gl.float32, mfmaLayout)
 
     for k in range(0, gl.cdiv(K, BLOCK_K)):
-        # ga = gl.amd.cdna3.buffer_load(
-        #     ptr=a_base, offsets=a_offsets, mask=offs_ak[None, :] < K - k * BLOCK_K, other=0.0
-        # )
-        # gb = gl.amd.cdna3.buffer_load(
-        #     ptr=b_base, offsets=b_offsets, mask=offs_bk[:, None] < K - k * BLOCK_K, other=0.0
-        # )
-
-        gl.amd.cdna4.async_copy.buffer_load_to_shared(
-            smemA, a_base, a_offsets, mask=offs_ak[None, :] < K - k * BLOCK_K, other=0.0
-        )
-        gl.amd.cdna4.async_copy.buffer_load_to_shared(
-            smemB, b_base, b_offsets, mask=offs_bk[:, None] < K - k * BLOCK_K, other=0.0
-        )
-        gl.amd.cdna4.async_copy.commit_group()
-        gl.amd.cdna4.async_copy.wait_group(0)
-        a = smemA.load(dotOpLayoutA)
-        b = smemB.load(dotOpLayoutB)
+        mask_a = (pid_m * BLOCK_M + offs_am[:, None] < M) & (offs_ak[None, :] < K - k * BLOCK_K)
+        mask_b = (pid_n * BLOCK_N + offs_bn[None, :] < N) & (offs_bk[:, None] < K - k * BLOCK_K)
+        if USE_ASYNC_COPY:
+            # Gluon 3.8 exposes the gfx942-compatible dword copy through cdna4.
+            gl.amd.cdna4.async_copy.buffer_load_to_shared(smemA, a_base, a_offsets, mask=mask_a, other=0.0)
+            gl.amd.cdna4.async_copy.buffer_load_to_shared(smemB, b_base, b_offsets, mask=mask_b, other=0.0)
+            gl.amd.cdna4.async_copy.commit_group()
+            gl.amd.cdna4.async_copy.wait_group(0)
+            a = smemA.load(dotOpLayoutA)
+            b = smemB.load(dotOpLayoutB)
+        else:
+            ga = gl.amd.cdna3.buffer_load(a_base, a_offsets, mask=mask_a, other=0.0)
+            gb = gl.amd.cdna3.buffer_load(b_base, b_offsets, mask=mask_b, other=0.0)
+            a = gl.convert_layout(ga, dotOpLayoutA)
+            b = gl.convert_layout(gb, dotOpLayoutB)
 
         acc = gl.amd.cdna3.mfma(a, b, acc)
 
@@ -104,7 +105,7 @@ def v0_naive(
     c_base = c_ptr + pid_m * BLOCK_M * stride_cm + pid_n * BLOCK_N * stride_cn
     c_offsets = stride_cm * offs_cm[:, None] + stride_cn * offs_cn[None, :]
     c_ptrs = c_base + c_offsets
-    c_mask = (offs_cm[:, None] < M) & (offs_cn[None, :] < N)
+    c_mask = (pid_m * BLOCK_M + offs_cm[:, None] < M) & (pid_n * BLOCK_N + offs_cn[None, :] < N)
     # gl.store(c_ptrs, c, mask=c_mask)
     gl.amd.cdna3.buffer_store(ptr=c_base, offsets=c_offsets, stored_value=c, mask=c_mask)
 
@@ -118,6 +119,13 @@ def matmul(a, b, c=None):
         c = torch.empty((M, N), device=a.device, dtype=a.dtype)
     GRID_MN = triton.cdiv(M, BLOCK_M) * triton.cdiv(N, BLOCK_N)
     grid = (GRID_MN, 1)
+    # Triton specializes 16-aligned arguments, proving each lane can copy a full dword.
+    use_async_copy = (
+        K % 16 == 0
+        and a.stride(1) == b.stride(0) == 1
+        and a.stride(0) % 16 == b.stride(1) % 16 == 0
+        and a.data_ptr() % 16 == b.data_ptr() % 16 == 0
+    )
     v0_naive[grid](
         a,
         b,
@@ -134,6 +142,7 @@ def matmul(a, b, c=None):
         BLOCK_M=BLOCK_M,
         BLOCK_N=BLOCK_N,
         BLOCK_K=BLOCK_K,
+        USE_ASYNC_COPY=use_async_copy,
         num_warps=num_warps,
     )
     return c
