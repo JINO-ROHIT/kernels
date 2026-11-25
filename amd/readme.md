@@ -1,78 +1,95 @@
-### amd kernels
+# AMD kernels
 
-all the kernels are in triton/gluon and written for gfx942.
+These GEMM kernels are written in Triton/Gluon for the AMD Instinct MI300X
+(`gfx942`).
 
-Benchmark a kernel by filename (`.py` is optional). Relative kernel names resolve
-inside `amd/gemm`, regardless of the working directory:
+## Setup
+
+```sh
+uv pip install 'torch==2.15.0+rocm10.0' \
+  --index-url https://download.pytorch.org/whl/rocm10.0
+uv pip install numpy matplotlib pandas
+
+apt-get update -qq
+apt-get install -y python3.12-dev
+```
+
+## Benchmarking
+
+Run the benchmark from the repository root. The `--kernel` argument accepts a
+filename with or without the `.py` extension. Relative kernel names resolve
+inside `amd/gemm`, regardless of the working directory.
 
 ```sh
 python amd/gemm/bench.py --kernel 01_naive --K 4096 --dtype fp16
 ```
 
-'''
-uv pip install 'torch==2.15.0+rocm10.0' \
-  --index-url https://download.pytorch.org/whl/rocm10.0
+### FP16 results
 
-uv pip install numpy matplotlib pandas
+All four runs used `M = N = K = 4096`. Each row includes the rocBLAS throughput
+measured in the same run.
 
-apt-get update -qq
-apt-get install -y python3.12-dev
-'''
+| Kernel | Implementation | Triton (TFLOPS) | rocBLAS (TFLOPS) |
+| --- | --- | ---: | ---: |
+| [01_naive.py](gemm/01_naive.py) | Regular dot product | 9.879713 | 598.596515 |
+| [02_mfma.py](gemm/02_mfma.py) | 16 × 16 × 16 MFMA instruction | 224.862615 | 595.990350 |
+| [03_buffer_load.py](gemm/03_buffer_load.py) | Buffer loads | 305.228615 | 591.268802 |
+| [04_async_copy.py](gemm/04_async_copy.py) | Direct copy from global memory to LDS | 172.488217 | 591.883725 |
 
-kernel naive.py - use a regular dot product
+## Profiling[WIP] not to be taken seriously yet
 
-        M       N        K  Triton fp16 (TFLOPS)  rocBLAS fp16 (TFLOPS)  
-4  4096.0  4096.0   4096.0              9.879713             598.596515  
+From the repository root, run the benchmark under `rocprofv3` to collect a
+kernel trace and summary statistics in CSV format.
 
+```sh
+/opt/rocm/core-10.1/bin/rocprofv3 \
+  --kernel-trace --stats --output-format csv \
+  -d /root/profile_results/bench_fixed -- \
+  python3 amd/gemm/bench.py --kernel 01_naive --K 4096 --dtype fp16 --rocprof
+```
 
+## Kernel notes
 
-kernel mfa.py - use the 16x16x16 mfa instruction
+### Buffer loads
 
-        M       N        K  Triton fp16 (TFLOPS)  rocBLAS fp16 (TFLOPS) 
-4  4096.0  4096.0   4096.0            224.862615             595.990350 
+AMD buffer operations check bounds in hardware, which avoids explicit branches
+for masked loads in GEMM kernels. They can also reduce the number of vector
+registers needed for addresses by keeping a shared base separate from each
+lane's 32-bit offset.
 
-kernel  - buffer load
-     M       N        K  Triton fp16 (TFLOPS)  rocBLAS fp16 (TFLOPS) 
-4  4096.0  4096.0   4096.0            305.228615             591.268802
+Two constraints affect their use:
 
+- **Offset width.** A 32-bit byte offset can address a 4 GB range from the base.
+- **Compiler range analysis.** The compiler's range analysis works reliably
+  when the whole tensor is smaller than 2 GB.
 
-kernel - async copy
+### Async copy and local data share (LDS)
 
-the first immediate change is that we are using [1,2] size poer thread, the reason being in MI300X (gfx942), a direct global to LDS load transfers up to 4 bytes per lane per instruction. That’s two FP16 or BF16 values per lane. With all 64 lanes active, one instruction can copy 256 bytes into LDS.
+The async-copy kernel loads data directly from global memory into LDS. This
+saves the VGPRs used to stage the data and removes the corresponding
+`ds_write` instructions that would copy values from those registers into LDS.
+A subsequent `ds_read` loads data from LDS into each lane's VGPRs for arithmetic.
 
-that explains the slow down
-    M       N        K  Triton fp16 (TFLOPS)  rocBLAS fp16 (TFLOPS) 
-4  4096.0  4096.0   4096.0            172.488217             591.883725
+On the MI300X, a direct global-to-LDS load transfers up to 4 bytes per lane per
+instruction, enough for two FP16 or BF16 values. With all 64 lanes active, one
+instruction can copy 256 bytes into LDS. This transfer width motivates the
+kernel's `[1, 2]` per-thread layout and helps explain its lower throughput in
+the benchmark above.
 
+## Registers and execution on gfx942
 
-kernel
+### Vector and scalar registers
 
-Buffer operations are an AMD-specific memory access mechanism with built-in out-of-bounds (OOB) checking.
-The key insight is that buffer ops handle OOB checks in hardware, eliminating the need for branches in the generated code. This is particularly valuable for masked loads common in GEMM kernels.
+A wavefront contains 64 lanes. Scalar register values are shared within each
+wavefront.
 
-Pros:
-
-Automatic OOB check — Hardware handles out-of-bounds access, producing efficient codegen for masked loads
-Potentially fewer VGPRs for addresses — Buffer ops keep the shared base separate from per-lane 32-bit offsets; savings depend on the addressing mode the compiler would otherwise generate
-
-Cons:
-
-32-bit offset limitation — In theory, buffer ops cannot access address spaces larger than 4 GB
-Range analysis constraints — The compiler's range analysis only works reliably when the whole tensor is small (< 2 GB), further limiting use cases
-
-VGPRs vs SGPRs
-
-On gfx942, a wavefront contains 64 lanes:
-
-| Register type | Meaning | Values held by one register across a wave |
+| Register | Meaning | Values held by one register in a wavefront |
 | --- | --- | --- |
-| VGPR | Vector General-Purpose Register | 64 separate 32-bit values, one per lane |
-| SGPR | Scalar General-Purpose Register | One 32-bit value shared by all lanes |
+| VGPR | Vector general-purpose register | 64 separate 32-bit values, one per lane |
+| SGPR | Scalar general-purpose register | One 32-bit value shared by all lanes |
 
-Each wave has its own scalar-register values; the sharing is within a wave.
-
-For example, lanes can access different elements of the same array using one
-shared base address and different offsets. These example offsets are in bytes:
+For example, lanes can access different elements of an array using a shared base
+address and a per-lane byte offset.
 
 ```text
 Shared 64-bit base in s[0:1] = 1000
@@ -82,66 +99,38 @@ Offsets in VGPR v0       0        4        8       12   ...
 Memory addresses     1000     1004     1008     1012   ...
 ```
 
-The base uses two SGPRs because it is 64 bits. The offsets use one VGPR because
-each lane's offset is 32 bits. Values loaded from A/B and per-lane intermediate
-results are other examples of data held in VGPRs.
+The 64-bit base occupies two SGPRs. One VGPR holds all 64 lanes' 32-bit
+offsets. VGPRs also hold values loaded from matrices A and B and per-lane
+intermediate results.
 
-This explains the potential address-register saving from buffer operations:
-materializing a full 64-bit address in each lane needs two VGPRs, whereas buffer
-addressing can use one VGPR for the offset and keep the buffer descriptor
-(including its base address and bounds) in SGPRs.
+Materializing a full 64-bit address in each lane takes two VGPRs. Buffer
+addressing computes `base + offset` using one VGPR for the offsets and SGPRs
+for the buffer descriptor, which includes the base address and bounds.
+Ordinary AMD global loads can also use a scalar base plus a 32-bit vector
+offset. If the compiler already generates that form for `gl.load`, switching
+to buffer operations may not reduce VGPR usage.
 
-The calculation is still `base + offset`. Ordinary AMD global loads can also use
-a scalar base plus a 32-bit vector offset. If the compiler already generates that
-form for `gl.load`, switching to buffer operations may not reduce VGPR usage.
+### Wavefronts and SIMD units
 
+A wavefront is a group of threads. A SIMD unit executes one instruction across
+multiple lanes, and its register file holds their VGPR values. For example,
+`v2 = v0 + v1` adds each active lane's own values:
 
-kernel 2 - async copy
-
-load data directly from global memory into LDS, bypassing registers entirely.
-
-This has two immediate advantages:
-
-Register savings — Data does not need to be staged in VGPRs before being written to LDS
-Instruction reduction — Eliminates ds_write instructions entirely (ds write is when value from vgprs is written into lds)
-
-
-to profile
-
-```
-/opt/rocm/core-10.1/bin/rocprofv3 \
-  --kernel-trace --stats --output-format csv \
-  -d /root/profile_results/bench_fixed -- \
-  python3 bench.py --kernel 01_naive --K 4096 --dtype fp16 --rocprof
-```
-
-ds_read when load data from LDS ionto each lanes VGPRs so another instruction can calculate w them.
-
-A SIMD is a hardware execution unit that applies one instruction to multiple lanes’ data.
-
-For example, the instruction:
-
-v2 = v0 + v1
-
-makes each active lane add its own values:
-
+```text
 Lane 0: v2[0] = v0[0] + v1[0]
 Lane 1: v2[1] = v0[1] + v1[1]
 ...
+```
 
-A wave is the group of threads being executed; a SIMD is hardware that executes their instructions. Its associated register file holds their VGPR values
+On CDNA 3 (`gfx942`), each compute unit has four 16-wide SIMD units. A SIMD unit
+processes a wavefront's 64 logical lanes in groups for ordinary vector
+arithmetic. When data “returns from LDS to the SIMD,” it arrives in the SIMD
+unit's VGPR file, ready for subsequent instructions.
 
-For your CDNA3/gfx942 GPU, each compute unit has four 16-wide SIMD units. A wave has 64 logical lanes, so ordinary vector arithmetic processes that wave in groups rather than requiring 64 physical arithmetic lanes in one SIMD.
-
-Its vector arithmetic hardware handles operations such as:
-
-| Work | Examples |
-|---|---|
+| Vector operation | Examples |
+| --- | --- |
 | Floating-point arithmetic | Add, multiply, fused multiply-add |
 | Integer arithmetic | Index calculations, offsets |
 | Bit operations | AND, OR, XOR, shifts |
 | Comparisons and selection | Compare values, choose results |
 | Type conversions | Convert between supported numeric types |
-
-So when documentation says “data returns from LDS to the SIMD,” it means the data arrives in the SIMD’s associated VGPR register file, ready for subsequent instructions.
-
