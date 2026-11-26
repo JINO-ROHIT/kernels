@@ -29,24 +29,10 @@ def v3_lds_swizzling(
     pid_m = pid // num_pid_n
     pid_n = pid % num_pid_n
 
-    gLoadLayoutA: gl.constexpr = gl.BlockedLayout(
-        [1, 8],  # sizePerThread
-        [512 // BLOCK_K, BLOCK_K // 8],  # threadsPerWarp
-        [4, 1],  # warpsPerCTA
-        [1, 0],  # order
-    )
-
-    gLoadLayoutB: gl.constexpr = gl.BlockedLayout(
-        [8, 1],  # sizePerThread
-        [BLOCK_K // 8, 512 // BLOCK_K],  # threadsPerWarp
-        [1, 4],  # warpsPerCTA
-        [0, 1],  # order
-    )
-    # vec = 8 keep groups of 8 consecutive elements together
-    # per phase = 2 change rearrangement pattern every 2M rows
-    # max phase = 8 use 8 patterns, 0-7 
-    sharedLayoutA: gl.constexpr = gl.SwizzledSharedLayout(vec=8, per_phase=2, max_phase=8, order=[1, 0])
-    sharedLayoutB: gl.constexpr = gl.SwizzledSharedLayout(8, 2, 8, order=[0, 1])
+    gLoadLayoutA: gl.constexpr = gl.BlockedLayout([1, 2], [4, 16], [4, 1], [1, 0])
+    gLoadLayoutB: gl.constexpr = gl.BlockedLayout([2, 1], [16, 4], [1, 4], [0, 1])
+    sharedLayoutA: gl.constexpr = gl.SwizzledSharedLayout(2, 4, 8, order=[1, 0])
+    sharedLayoutB: gl.constexpr = gl.SwizzledSharedLayout(2, 4, 8, order=[0, 1])
 
     smemA = gl.allocate_shared_memory(a_ptr.dtype.element_ty, [BLOCK_M, BLOCK_K], sharedLayoutA)
     smemB = gl.allocate_shared_memory(b_ptr.dtype.element_ty, [BLOCK_K, BLOCK_N], sharedLayoutB)
@@ -67,8 +53,8 @@ def v3_lds_swizzling(
         version=3, instr_shape=[16, 16, 16], transposed=True, warps_per_cta=[2, 2]
     )
 
-    dotOpLayoutA: gl.constexpr = gl.DotOperandLayout(operand_index=0, parent=mfmaLayout, k_width=8)
-    dotOpLayoutB: gl.constexpr = gl.DotOperandLayout(operand_index=1, parent=mfmaLayout, k_width=8)
+    dotOpLayoutA: gl.constexpr = gl.DotOperandLayout(operand_index=0, parent=mfmaLayout, k_width=4)
+    dotOpLayoutB: gl.constexpr = gl.DotOperandLayout(operand_index=1, parent=mfmaLayout, k_width=4)
 
     acc = gl.zeros((BLOCK_M, BLOCK_N), gl.float32, mfmaLayout)
 
@@ -125,62 +111,14 @@ def v3_lds_padding(
     pid_m = pid // num_pid_n
     pid_n = pid % num_pid_n
 
-    gLoadLayoutA: gl.constexpr = gl.DistributedLinearLayout(
-        reg_bases=[[0, 1], [0, 2], [0, 4], [4, 0], [8, 0], [128, 0]],
-        lane_bases=[[0, 8], [0, 16], [0, 32], [16, 0], [32, 0], [64, 0]],
-        warp_bases=[[1, 0], [2, 0]],
-        block_bases=[],
-        shape=[BLOCK_M, BLOCK_K],
+    # gfx942 copies one dword (two 16-bit elements) per lane into LDS.
+    gLoadLayoutA: gl.constexpr = gl.BlockedLayout([1, 2], [4, 16], [4, 1], [1, 0])
+    gLoadLayoutB: gl.constexpr = gl.BlockedLayout([2, 1], [16, 4], [1, 4], [0, 1])
+    sharedLayoutA: gl.constexpr = gl.PaddedSharedLayout.with_identity_for(
+        [[128, 8]], [BLOCK_M, BLOCK_K], [1, 0]
     )
-    gLoadLayoutB: gl.constexpr = gl.DistributedLinearLayout(
-        reg_bases=[[1, 0], [2, 0], [4, 0], [0, 4], [0, 8], [0, 128]],
-        lane_bases=[[8, 0], [16, 0], [32, 0], [0, 16], [0, 32], [0, 64]],
-        warp_bases=[[0, 1], [0, 2]],
-        block_bases=[],
-        shape=[BLOCK_K, BLOCK_N],
-    )
-
-    sharedLayoutA: gl.constexpr = gl.PaddedSharedLayout(
-        [[512, 16]],
-        [
-            [0, 1],
-            [0, 2],
-            [0, 4],
-            [0, 8],
-            [0, 16],
-            [0, 32],
-            [16, 0],
-            [32, 0],
-            [64, 0],
-            [1, 0],
-            [2, 0],
-            [4, 0],
-            [8, 0],
-            [128, 0],
-        ],
-        [],
-        [BLOCK_M, BLOCK_K],
-    )
-    sharedLayoutB: gl.constexpr = gl.PaddedSharedLayout(
-        [[512, 16]],
-        [
-            [1, 0],
-            [2, 0],
-            [4, 0],
-            [8, 0],
-            [16, 0],
-            [32, 0],
-            [0, 16],
-            [0, 32],
-            [0, 64],
-            [0, 1],
-            [0, 2],
-            [0, 4],
-            [0, 8],
-            [0, 128],
-        ],
-        [],
-        [BLOCK_K, BLOCK_N],
+    sharedLayoutB: gl.constexpr = gl.PaddedSharedLayout.with_identity_for(
+        [[128, 8]], [BLOCK_K, BLOCK_N], [0, 1]
     )
 
     smemA = gl.allocate_shared_memory(a_ptr.dtype.element_ty, [BLOCK_M, BLOCK_K], sharedLayoutA)
@@ -202,8 +140,8 @@ def v3_lds_padding(
         version=3, instr_shape=[16, 16, 16], transposed=True, warps_per_cta=[2, 2]
     )
 
-    dotOpLayoutA: gl.constexpr = gl.DotOperandLayout(operand_index=0, parent=mfmaLayout, k_width=8)
-    dotOpLayoutB: gl.constexpr = gl.DotOperandLayout(operand_index=1, parent=mfmaLayout, k_width=8)
+    dotOpLayoutA: gl.constexpr = gl.DotOperandLayout(operand_index=0, parent=mfmaLayout, k_width=4)
+    dotOpLayoutB: gl.constexpr = gl.DotOperandLayout(operand_index=1, parent=mfmaLayout, k_width=4)
 
     acc = gl.zeros((BLOCK_M, BLOCK_N), gl.float32, mfmaLayout)
 
@@ -237,7 +175,10 @@ def matmul(a, b, c=None):
     assert a.is_contiguous(), "Matrix A must be contiguous"
     M, K = a.shape
     K, N = b.shape
-    BLOCK_M, BLOCK_N, BLOCK_K = 256, 256, 64
+    BLOCK_M, BLOCK_N, BLOCK_K = 128, 128, 32
+    # The direct-to-LDS loads cover whole tiles without tail masks.
+    if M % BLOCK_M or N % BLOCK_N or K % BLOCK_K or K == 0:
+        raise ValueError("Expected whole 128 x 128 x 32 tiles with positive K")
     num_warps = 4
     if c is None:
         c = torch.empty((M, N), device=a.device, dtype=a.dtype)
